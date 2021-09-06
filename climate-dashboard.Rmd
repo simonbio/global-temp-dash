@@ -1,0 +1,125 @@
+---
+title: 'Global Land Temperatures by Country'
+output: 
+  flexdashboard::flex_dashboard:
+    theme: flatly
+runtime: shiny
+
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(DT)
+library(highcharter)
+
+country <- read_csv('GlobalLandTemperaturesByCountry.csv') %>% na.omit()
+
+mapdata <- get_data_from_map(download_map_data('custom/world-eckert3-highres'))
+
+# String manipulation
+country$Country <- str_replace_all(country$Country, 'United States', 'United States of America')
+country$Country <- str_replace_all(country$Country, '^Congo.\\(.*', 'Democratic Republic of the Congo')
+country$Country <- str_replace_all(country$Country, '^Congo', 'Republic of Congo')
+country$Country <- str_replace_all(country$Country, 'Tanzania', 'United Republic of Tanzania')
+# remove Denmark measurement containing Greenland temps
+country <- country[!country$Country == 'Denmark',]
+country$Country <- str_replace_all(country$Country, 'Denmark.*', 'Denmark')
+
+country$dt <- format(country$dt, format='%Y')
+
+#rename
+country <- country %>% rename(name = Country) %>% semi_join(mapdata, by = 'name')
+
+c_choices <- unique(country$name)
+
+map_data <- reactive({
+  
+  country %>% filter(dt >= input$period[1] & dt <= input$period[2]) %>%
+    group_by(name, dt) %>% summarise(average_temp = mean(AverageTemperature)) %>%
+    arrange(dt)
+})
+
+time_data <- reactive({
+  country %>% filter(dt >= input$period[1] & dt <= input$period[2] & name %in% input$countries) %>%
+    group_by(name, dt) %>% summarise(average_temp = mean(AverageTemperature)) %>%
+    arrange(dt)
+})
+
+  
+```
+
+Column {.sidebar}
+------------------------------------------------------------------
+```{r}
+
+HTML('<br>')
+
+p(style='font-size:12px','This dashboard presents the development in the global land temperatures by country from 1800 to 2013. The data comes from ', a('kaggle', href = 'https://www.kaggle.com/berkeleyearth/climate-change-earth-surface-temperature-data'), 'and consist of repackaged data from a newer compilation put together by the',  a('Berkeley Earth', href = 'http://berkeleyearth.org/about/'), ', which is affiliated with the Lawrence Berkeley National Laboratory')
+
+HTML('<br>') 
+
+sliderInput(inputId = 'period',
+                  label = 'Time Period:',
+                  min = 1800,
+                  max = 2013,
+                  value = c(1800, 2013),
+                  step = 1,
+                  sep = '')
+
+HTML('<br>') 
+
+selectInput(inputId = 'countries',
+            label = 'Select Countries',
+            choices = c_choices,
+            selected = c('Denmark', 'Spain'),
+            multiple = TRUE)
+
+HTML('<br>')
+
+h4('Author', strong('SKOE'))
+a('R code for this app',target='_blank',href='https://github.com/simonbio/c25-app-05-07-2021')
+```
+
+Column 
+------------------------------------------------------------------
+
+
+
+### Time-series
+```{r}
+
+renderHighchart({
+  time_data() %>%
+  hchart(.,
+         type = 'line',
+         hcaes(x = dt,
+               y = average_temp,
+               group = 'name')) %>% 
+    hc_xAxis(title = list(text = 'Year')) %>% 
+    hc_yAxis(title = list(text = 'Average temperature °C '))
+
+})
+
+
+```
+
+
+### World map
+```{r}
+renderHighchart({
+  
+  hcmap(
+  map = 'custom/world-eckert3-highres',
+  data = map_data(),
+  value = 'average_temp',
+  joinBy = c('name', 'name'),
+  name = 'Temperature (Celsius) ',
+    tooltip = list(
+    valueDecimals = 2,
+    valueSuffix = '°C'
+  )
+) %>%  hc_colorAxis(stops = color_stops())
+ })
+
+
+```
